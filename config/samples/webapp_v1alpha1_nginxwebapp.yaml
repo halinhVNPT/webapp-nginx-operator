@@ -1,0 +1,9 @@
+apiVersion: webapp.vnptplatform.vn/v1alpha1
+kind: NginxWebApp
+metadata:
+  labels:
+    app.kubernetes.io/name: webapp-nginx-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: nginxwebapp-sample
+spec:
+  # TODO(user): Add fields here

@@ -1,0 +1,10 @@
+apiVersion: webapp.vnptplatform.vn/v1alpha1
+kind: NginxWebApp
+metadata:
+  labels:
+    app.kubernetes.io/name: webapp-nginx-operator
+  name: nginxwebapp-sample
+spec:
+  replicas: 2
+  image: nginx:1.25
+  port: 80
