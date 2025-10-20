@@ -135,12 +135,22 @@ type NginxWebAppStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
+	// AvailableReplicas shows how many replicas are up and running
 	AvailableReplicas int32 `json:"availableReplicas,omitempty"`
+
+	// Endpoint (ingress or lb)
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// Phase ( Pending, Running, Error...)
+	// +kubebuilder:default=Pending
+	Phase string `json:"phase,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-
+// +kubebuilder:printcolumn:name="STATUS",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="ENDPOINT",type=string,JSONPath=`.status.endpoint`
+// +kubebuilder:printcolumn:name="AVAILABLE",type=integer,JSONPath=`.status.availableReplicas`
 // NginxWebApp is the Schema for the nginxwebapps API
 type NginxWebApp struct {
 	metav1.TypeMeta `json:",inline"`

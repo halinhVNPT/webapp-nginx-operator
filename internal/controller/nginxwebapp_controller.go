@@ -149,9 +149,17 @@ func (r *NginxWebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// update status with available replicas
 	var currentDep appsv1.Deployment
 	if err := r.Get(ctx, client.ObjectKey{Namespace: webapp.Namespace, Name: depl.Name}, &currentDep); err == nil {
+		logger.Info("update status")
+		webapp.Status = webappv1alpha1.NginxWebAppStatus{}
 		webapp.Status.AvailableReplicas = currentDep.Status.AvailableReplicas
+		if currentDep.Status.AvailableReplicas < *depl.Spec.Replicas {
+			webapp.Status.Phase = "Creating"
+		} else {
+			webapp.Status.Phase = "Running"
+		}
 		if err := r.Status().Update(ctx, &webapp); err != nil {
 			logger.Error(err, "failed to update WebApp status")
+			webapp.Status.Phase = "Error"
 			// don't return error to avoid hot loops; requeue later
 		}
 	}

@@ -14,7 +14,17 @@ spec:
     singular: nginxwebapp
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: STATUS
+      type: string
+    - jsonPath: .status.endpoint
+      name: ENDPOINT
+      type: string
+    - jsonPath: .status.availableReplicas
+      name: AVAILABLE
+      type: integer
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: NginxWebApp is the Schema for the nginxwebapps API
@@ -134,6 +144,8 @@ spec:
             description: status defines the observed state of NginxWebApp
             properties:
               availableReplicas:
+                description: AvailableReplicas shows how many replicas are up and
+                  running
                 format: int32
                 type: integer
               conditions:
@@ -205,6 +217,13 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              endpoint:
+                description: Endpoint (ingress or lb)
+                type: string
+              phase:
+                default: Pending
+                description: Phase ( Pending, Running, Error...)
+                type: string
             type: object
         required:
         - spec
