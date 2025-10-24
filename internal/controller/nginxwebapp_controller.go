@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -46,6 +48,7 @@ type NginxWebAppReconciler struct {
 // +kubebuilder:rbac:groups=webapp.vnptplatform.vn,resources=nginxwebapps/finalizers,verbs=update
 //+kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=apps,resources=statefulSet,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -88,41 +91,61 @@ func (r *NginxWebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
-	// Desired Deployment
-	depl := appsv1.Deployment{
+	// Desired StatefulSet
+	sts := appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      webapp.Name + "-deployment",
+			Name:      webapp.Name + "-sts",
 			Namespace: webapp.Namespace,
 		},
 	}
 	// CreateOrUpdate pattern
-	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, &depl, func() error {
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, &sts, func() error {
 		replicas := int32(1)
 		if webapp.Spec.Replicas != nil {
 			replicas = *webapp.Spec.Replicas
 		}
-		depl.Spec.Replicas = &replicas
-		depl.Spec.Selector = &metav1.LabelSelector{MatchLabels: map[string]string{"app": webapp.Name}}
-		depl.Spec.Template.ObjectMeta.Labels = map[string]string{"app": webapp.Name}
-		depl.Spec.Template.Spec.Containers = []corev1.Container{
+		sts.Spec.Replicas = &replicas
+		sts.Spec.Selector = &metav1.LabelSelector{MatchLabels: map[string]string{"app": webapp.Name}}
+		sts.Spec.Template.ObjectMeta.Labels = map[string]string{"app": webapp.Name}
+		sts.Spec.Template.Spec.Containers = []corev1.Container{
 			{
 				Name:  "nginx",
 				Image: webapp.Spec.Image,
 				Ports: []corev1.ContainerPort{{ContainerPort: webapp.Spec.Port}},
+				ReadinessProbe: &corev1.Probe{
+					InitialDelaySeconds: 10,
+					PeriodSeconds:       5,
+					ProbeHandler: corev1.ProbeHandler{
+						HTTPGet: &corev1.HTTPGetAction{
+							Path: "/",
+							Port: intstr.FromInt(int(webapp.Spec.Port)),
+						},
+					},
+				},
+				LivenessProbe: &corev1.Probe{
+					InitialDelaySeconds: 10,
+					PeriodSeconds:       5,
+					ProbeHandler: corev1.ProbeHandler{
+						HTTPGet: &corev1.HTTPGetAction{
+							Path: "/",
+							Port: intstr.FromInt(int(webapp.Spec.Port)),
+						},
+					},
+				},
 			},
 		}
 		// set owner reference
-		if err := controllerutil.SetControllerReference(&webapp, &depl, r.Scheme); err != nil {
+		if err := controllerutil.SetControllerReference(&webapp, &sts, r.Scheme); err != nil {
 			return err
 		}
 		return nil
 	})
 
 	if err != nil {
-		logger.Error(err, "failed to create/update Deployment")
+		logger.Error(err, "failed to create/update StatefulSet")
 		return ctrl.Result{}, err
 	}
-	logger.Info("Deployment reconciled", "operation", op)
+	logger.Info("StatefulSet reconciled", "operation", op)
 	// Ensure Service
 	svc := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -147,20 +170,35 @@ func (r *NginxWebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// update status with available replicas
-	var currentDep appsv1.Deployment
-	if err := r.Get(ctx, client.ObjectKey{Namespace: webapp.Namespace, Name: depl.Name}, &currentDep); err == nil {
-		logger.Info("update status")
-		webapp.Status = webappv1alpha1.NginxWebAppStatus{}
+	var currentDep appsv1.StatefulSet
+	if err := r.Get(ctx, client.ObjectKey{Namespace: webapp.Namespace, Name: sts.Name}, &currentDep); err == nil {
+		webapp.Status = webappv1alpha1.NginxWebAppStatus{
+			AvailableReplicas: 0,
+			Phase:             "Pending",
+		}
+
 		webapp.Status.AvailableReplicas = currentDep.Status.AvailableReplicas
-		if currentDep.Status.AvailableReplicas < *depl.Spec.Replicas {
+
+		fmt.Println(currentDep.Status.AvailableReplicas, *sts.Spec.Replicas)
+		if currentDep.Status.AvailableReplicas != *sts.Spec.Replicas {
+
 			webapp.Status.Phase = "Creating"
+			if webapp.Generation > 1 {
+				webapp.Status.Phase = "Updating"
+			}
+			logger.Info("update status" + webapp.Status.Phase)
 		} else {
 			webapp.Status.Phase = "Running"
+			logger.Info("update status" + webapp.Status.Phase)
+
 		}
 		if err := r.Status().Update(ctx, &webapp); err != nil {
 			logger.Error(err, "failed to update WebApp status")
 			webapp.Status.Phase = "Error"
 			// don't return error to avoid hot loops; requeue later
+		}
+		if webapp.Status.Phase != "Running" {
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 		}
 	}
 	return ctrl.Result{}, nil
